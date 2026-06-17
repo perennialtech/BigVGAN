@@ -17,6 +17,7 @@ dependencies = [
     "soundfile>=0.14",
     "tensorboard>=2.20",
     "torch==2.11",
+    "torchaudio==2.11",
     "tqdm>=4.68",
 ]
 
