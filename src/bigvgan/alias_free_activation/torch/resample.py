@@ -31,7 +31,10 @@ class UpSample1d(nn.Module):
 
         x = F.pad(x, (self.pad, self.pad), mode="replicate")
         x = self.ratio * F.conv_transpose1d(
-            x, self.filter.expand(C, -1, -1), stride=self.stride, groups=C
+            x,
+            self.filter.expand(C, -1, -1),  # pyright: ignore[reportCallIssue]
+            stride=self.stride,
+            groups=C,
         )
         x = x[..., self.pad_left : -self.pad_right]
 

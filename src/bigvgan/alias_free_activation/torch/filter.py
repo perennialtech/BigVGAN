@@ -6,22 +6,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-if "sinc" in dir(torch):
-    sinc = torch.sinc
-else:
+_HAS_TORCH_SINC = hasattr(torch, "sinc")
+
+
+def sinc(x: torch.Tensor) -> torch.Tensor:
+    if _HAS_TORCH_SINC:
+        return torch.sinc(x)
+
     # This code is adopted from adefossez's julius.core.sinc under the MIT License
     # https://adefossez.github.io/julius/julius/core.html
     #   LICENSE is in incl_licenses directory.
-    def sinc(x: torch.Tensor):
-        """
-        Implementation of sinc, i.e. sin(pi * x) / (pi * x)
-        __Warning__: Different to julius.sinc, the input is multiplied by `pi`!
-        """
-        return torch.where(
-            x == 0,
-            torch.tensor(1.0, device=x.device, dtype=x.dtype),
-            torch.sin(math.pi * x) / math.pi / x,
-        )
+    """
+    Implementation of sinc, i.e. sin(pi * x) / (pi * x)
+    __Warning__: Different to julius.sinc, the input is multiplied by `pi`!
+    """
+    return torch.where(
+        x == 0,
+        torch.tensor(1.0, device=x.device, dtype=x.dtype),
+        torch.sin(math.pi * x) / math.pi / x,
+    )
 
 
 # This code is adopted from adefossez's julius.lowpass.LowPassFilters under the MIT License
@@ -50,16 +53,15 @@ def kaiser_sinc_filter1d(
     else:
         time = torch.arange(kernel_size) - half_size
     if cutoff == 0:
-        filter_ = torch.zeros_like(time)
+        filter_ = torch.zeros_like(window)
     else:
         filter_ = 2 * cutoff * window * sinc(2 * cutoff * time)
         """
         Normalize filter to have sum = 1, otherwise we will have a small leakage of the constant component in the input signal.
         """
         filter_ /= filter_.sum()
-        filter = filter_.view(1, 1, kernel_size)
 
-    return filter
+    return filter_.view(1, 1, kernel_size)
 
 
 class LowPassFilter1d(nn.Module):
@@ -96,6 +98,11 @@ class LowPassFilter1d(nn.Module):
 
         if self.padding:
             x = F.pad(x, (self.pad_left, self.pad_right), mode=self.padding_mode)
-        out = F.conv1d(x, self.filter.expand(C, -1, -1), stride=self.stride, groups=C)
+        out = F.conv1d(
+            x,
+            self.filter.expand(C, -1, -1),  # pyright: ignore[reportCallIssue]
+            stride=self.stride,
+            groups=C,
+        )
 
         return out

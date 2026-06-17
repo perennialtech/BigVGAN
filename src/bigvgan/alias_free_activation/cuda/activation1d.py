@@ -1,6 +1,8 @@
 # Copyright (c) 2024 NVIDIA CORPORATION.
 #   Licensed under the MIT license.
 
+from typing import Protocol
+
 import torch
 import torch.nn as nn
 from alias_free_activation.torch.resample import UpSample1d, DownSample1d
@@ -8,7 +10,21 @@ from alias_free_activation.torch.resample import UpSample1d, DownSample1d
 # load fused CUDA kernel: this enables importing anti_alias_activation_cuda
 from alias_free_activation.cuda import load
 
-anti_alias_activation_cuda = load.load()
+
+class _AntiAliasActivationCuda(Protocol):
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        up_ftr: torch.Tensor,
+        down_ftr: torch.Tensor,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+    ) -> torch.Tensor: ...
+
+
+anti_alias_activation_cuda: _AntiAliasActivationCuda = (
+    load.load()
+)  # pyright: ignore[reportAssignmentType]
 
 
 class FusedAntiAliasActivation(torch.autograd.Function):
@@ -27,9 +43,8 @@ class FusedAntiAliasActivation(torch.autograd.Function):
         return activation_results
 
     @staticmethod
-    def backward(ctx, output_grads):
+    def backward(ctx, *grad_outputs):
         raise NotImplementedError
-        return output_grads, None, None
 
 
 class Activation1d(nn.Module):
