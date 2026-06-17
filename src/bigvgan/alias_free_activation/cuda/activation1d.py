@@ -22,9 +22,19 @@ class _AntiAliasActivationCuda(Protocol):
     ) -> torch.Tensor: ...
 
 
-anti_alias_activation_cuda: _AntiAliasActivationCuda = (
-    load.load()
-)  # pyright: ignore[reportAssignmentType]
+try:
+    anti_alias_activation_cuda: _AntiAliasActivationCuda = (
+        load.load()
+    )  # pyright: ignore[reportAssignmentType]
+    _CUDA_AVAILABLE = True
+except Exception as e:
+    import warnings
+
+    warnings.warn(
+        f"Failed to load anti-alias activation kernel: {e}. Falling back to un-fused layer."
+    )
+    anti_alias_activation_cuda = None  # type: ignore
+    _CUDA_AVAILABLE = False
 
 
 class FusedAntiAliasActivation(torch.autograd.Function):
@@ -64,7 +74,7 @@ class Activation1d(nn.Module):
         self.upsample = UpSample1d(up_ratio, up_kernel_size)
         self.downsample = DownSample1d(down_ratio, down_kernel_size)
 
-        self.fused = fused  # Whether to use fused CUDA kernel or not
+        self.fused = fused and _CUDA_AVAILABLE
 
     def forward(self, x):
         if not self.fused:
