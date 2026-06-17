@@ -10,8 +10,7 @@ import torch.nn as nn
 from librosa.filters import mel as librosa_mel_fn
 from scipy import signal
 
-import typing
-from typing import List, Tuple
+from typing import Callable, List, Optional, Tuple
 from collections import namedtuple
 import math
 import functools
@@ -53,7 +52,7 @@ class MultiScaleMelSpectrogramLoss(nn.Module):
         sampling_rate: int,
         n_mels: List[int] = [5, 10, 20, 40, 80, 160, 320],
         window_lengths: List[int] = [32, 64, 128, 256, 512, 1024, 2048],
-        loss_fn: typing.Callable = nn.L1Loss(),
+        loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = nn.L1Loss(),
         clamp_eps: float = 1e-5,
         mag_weight: float = 0.0,
         log_weight: float = 1.0,
@@ -61,7 +60,7 @@ class MultiScaleMelSpectrogramLoss(nn.Module):
         weight: float = 1.0,
         match_stride: bool = False,
         mel_fmin: List[float] = [0, 0, 0, 0, 0, 0, 0],
-        mel_fmax: List[float] = [None, None, None, None, None, None, None],
+        mel_fmax: List[Optional[float]] = [None, None, None, None, None, None, None],
         window_type: str = "hann",
     ):
         super().__init__()
@@ -109,7 +108,7 @@ class MultiScaleMelSpectrogramLoss(nn.Module):
         wav,
         n_mels,
         fmin,
-        fmax,
+        fmax: Optional[float],
         window_length,
         hop_length,
         match_stride,
@@ -180,7 +179,7 @@ class MultiScaleMelSpectrogramLoss(nn.Module):
             Mel loss.
         """
 
-        loss = 0.0
+        loss = x.new_tensor(0.0)
         for n_mels, fmin, fmax, s in zip(
             self.n_mels, self.mel_fmin, self.mel_fmax, self.stft_params
         ):
@@ -196,12 +195,13 @@ class MultiScaleMelSpectrogramLoss(nn.Module):
 
             x_mels = self.mel_spectrogram(x, **kwargs)
             y_mels = self.mel_spectrogram(y, **kwargs)
-            x_logmels = torch.log(
-                x_mels.clamp(min=self.clamp_eps).pow(self.pow)
-            ) / torch.log(torch.tensor(10.0))
-            y_logmels = torch.log(
-                y_mels.clamp(min=self.clamp_eps).pow(self.pow)
-            ) / torch.log(torch.tensor(10.0))
+            log_base = torch.log(x.new_tensor(10.0))
+            x_logmels = (
+                torch.log(x_mels.clamp(min=self.clamp_eps).pow(self.pow)) / log_base
+            )
+            y_logmels = (
+                torch.log(y_mels.clamp(min=self.clamp_eps).pow(self.pow)) / log_base
+            )
 
             loss += self.log_weight * self.loss_fn(x_logmels, y_logmels)
             loss += self.mag_weight * self.loss_fn(x_logmels, y_logmels)
@@ -214,21 +214,26 @@ def feature_loss(
     fmap_r: List[List[torch.Tensor]], fmap_g: List[List[torch.Tensor]]
 ) -> torch.Tensor:
 
-    loss = 0
+    loss: Optional[torch.Tensor] = None
     for dr, dg in zip(fmap_r, fmap_g):
         for rl, gl in zip(dr, dg):
-            loss += torch.mean(torch.abs(rl - gl))
+            layer_loss = torch.mean(torch.abs(rl - gl))
+            loss = layer_loss if loss is None else loss + layer_loss
 
+    if loss is None:
+        return torch.tensor(0.0)
     return loss * 2  # This equates to lambda=2.0 for the feature matching loss
 
 
 def discriminator_loss(
     disc_real_outputs: List[torch.Tensor], disc_generated_outputs: List[torch.Tensor]
-) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
+) -> Tuple[torch.Tensor, List[float], List[float]]:
 
-    loss = 0
-    r_losses = []
-    g_losses = []
+    loss = (
+        disc_real_outputs[0].new_tensor(0.0) if disc_real_outputs else torch.tensor(0.0)
+    )
+    r_losses: List[float] = []
+    g_losses: List[float] = []
     for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
         r_loss = torch.mean((1 - dr) ** 2)
         g_loss = torch.mean(dg**2)
@@ -243,8 +248,8 @@ def generator_loss(
     disc_outputs: List[torch.Tensor],
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
 
-    loss = 0
-    gen_losses = []
+    loss = disc_outputs[0].new_tensor(0.0) if disc_outputs else torch.tensor(0.0)
+    gen_losses: List[torch.Tensor] = []
     for dg in disc_outputs:
         l = torch.mean((1 - dg) ** 2)
         gen_losses.append(l)

@@ -3,12 +3,28 @@
 
 import os
 import shutil
+from typing import Any
 
 
-class AttrDict(dict):
+class AttrDict(dict[str, Any]):
     def __init__(self, *args, **kwargs):
         super(AttrDict, self).__init__(*args, **kwargs)
-        self.__dict__ = self
+        object.__setattr__(self, "__dict__", self)
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        try:
+            del self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
 
 
 def build_env(config, config_name, path):

@@ -10,19 +10,22 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch.nn import Conv2d
 from torch.nn.utils import weight_norm, spectral_norm
-from torchaudio.transforms import Spectrogram, Resample
+from torchaudio.transforms import (
+    Spectrogram,
+    Resample,
+)  # pyright: ignore[reportMissingImports]
 
-from env import AttrDict
-from utils import get_padding
+from .env import AttrDict
+from .utils import get_padding
 import typing
-from typing import List, Tuple
+from typing import List, Tuple, cast
 
 
 class DiscriminatorP(torch.nn.Module):
     def __init__(
         self,
         h: AttrDict,
-        period: List[int],
+        period: int,
         kernel_size: int = 5,
         stride: int = 3,
         use_spectral_norm: bool = False,
@@ -141,7 +144,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 
 
 class DiscriminatorR(nn.Module):
-    def __init__(self, cfg: AttrDict, resolution: List[List[int]]):
+    def __init__(self, cfg: AttrDict, resolution: List[int]):
         super().__init__()
 
         self.resolution = resolution
@@ -304,8 +307,8 @@ class DiscriminatorB(nn.Module):
             power=None,
         )
         n_fft = window_length // 2 + 1
-        bands = [(int(b[0] * n_fft), int(b[1] * n_fft)) for b in bands]
-        self.bands = bands
+        band_ranges = [(int(b[0] * n_fft), int(b[1] * n_fft)) for b in bands]
+        self.bands: List[Tuple[int, int]] = band_ranges
         convs = lambda: nn.ModuleList(
             [
                 weight_norm(nn.Conv2d(2, channels, (3, 9), (1, 1), padding=(1, 4))),
@@ -331,7 +334,7 @@ class DiscriminatorB(nn.Module):
 
     def spectrogram(self, x: torch.Tensor) -> List[torch.Tensor]:
         # Remove DC offset
-        x = x - x.mean(dim=-1, keepdims=True)
+        x = x - x.mean(dim=-1, keepdim=True)
         # Peak normalize the volume of input audio
         x = 0.8 * x / (x.abs().max(dim=-1, keepdim=True)[0] + 1e-9)
         x = self.spec_fn(x)
@@ -344,17 +347,18 @@ class DiscriminatorB(nn.Module):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         x_bands = self.spectrogram(x.squeeze(1))
         fmap = []
-        x = []
+        band_outputs: List[torch.Tensor] = []
 
         for band, stack in zip(x_bands, self.band_convs):
-            for i, layer in enumerate(stack):
+            stack_layers = cast(nn.ModuleList, stack)
+            for i, layer in enumerate(stack_layers):
                 band = layer(band)
                 band = torch.nn.functional.leaky_relu(band, 0.1)
                 if i > 0:
                     fmap.append(band)
-            x.append(band)
+            band_outputs.append(band)
 
-        x = torch.cat(x, dim=-1)
+        x = torch.cat(band_outputs, dim=-1)
         x = self.conv_post(x)
         fmap.append(x)
 
@@ -523,7 +527,7 @@ class DiscriminatorCQT(nn.Module):
             ((kernel_size[1] - 1) * dilation[1]) // 2,
         )
 
-    def forward(self, x: torch.tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         fmap = []
 
         if self.cqtd_normalize_volume:

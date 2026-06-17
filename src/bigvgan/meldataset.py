@@ -14,8 +14,8 @@ import librosa
 from librosa.filters import mel as librosa_mel_fn
 import pathlib
 from tqdm import tqdm
-from typing import List, Tuple, Optional
-from env import AttrDict
+from typing import List, Tuple, Optional, Union
+from .env import AttrDict
 
 MAX_WAV_VALUE = 32767.0  # NOTE: 32768.0 -1 to prevent int16 overflow (results in popping sound in corner cases)
 
@@ -56,7 +56,7 @@ def mel_spectrogram(
     hop_size: int,
     win_size: int,
     fmin: int,
-    fmax: int = None,
+    fmax: Optional[int] = None,
     center: bool = False,
 ) -> torch.Tensor:
     """
@@ -179,7 +179,9 @@ def get_dataset_filelist(a):
     return training_files, validation_files, list_unseen_validation_files
 
 
-class MelDataset(torch.utils.data.Dataset):
+class MelDataset(
+    torch.utils.data.Dataset[Tuple[torch.Tensor, torch.Tensor, str, torch.Tensor]]
+):
     def __init__(
         self,
         training_files: List[str],
@@ -194,10 +196,10 @@ class MelDataset(torch.utils.data.Dataset):
         fmax: Optional[int],
         split: bool = True,
         shuffle: bool = True,
-        device: str = None,
+        device: Optional[Union[str, torch.device]] = None,
         fmax_loss: Optional[int] = None,
         fine_tuning: bool = False,
-        base_mels_path: str = None,
+        base_mels_path: Optional[str] = None,
         is_seen: bool = True,
     ):
         self.audio_files = training_files
@@ -234,8 +236,8 @@ class MelDataset(torch.utils.data.Dataset):
     def __getitem__(
         self, index: int
     ) -> Tuple[torch.Tensor, torch.Tensor, str, torch.Tensor]:
+        filename = self.audio_files[index]
         try:
-            filename = self.audio_files[index]
 
             # Use librosa.load that ensures loading waveform into mono with [-1, 1] float values
             # Audio is ndarray with shape [T_time]. Disable auto-resampling here to minimize overhead
@@ -327,6 +329,7 @@ class MelDataset(torch.utils.data.Dataset):
                 audio = audio.unsqueeze(0)  # [B(1), T_time]
 
                 # Load pre-computed mel from disk
+                assert self.base_mels_path is not None
                 mel = np.load(
                     os.path.join(
                         self.base_mels_path,

@@ -8,12 +8,12 @@ import argparse
 import json
 import torch
 import librosa
-from utils import load_checkpoint
-from meldataset import get_mel_spectrogram
+from .utils import load_checkpoint
+from .meldataset import get_mel_spectrogram
 from scipy.io.wavfile import write
-from env import AttrDict
-from meldataset import MAX_WAV_VALUE
-from bigvgan import BigVGAN as Generator
+from .env import AttrDict
+from .meldataset import MAX_WAV_VALUE
+from .bigvgan import BigVGAN as Generator
 
 h = None
 device = None

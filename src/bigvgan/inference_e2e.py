@@ -10,9 +10,9 @@ import argparse
 import json
 import torch
 from scipy.io.wavfile import write
-from env import AttrDict
-from meldataset import MAX_WAV_VALUE
-from bigvgan import BigVGAN as Generator
+from .env import AttrDict
+from .meldataset import MAX_WAV_VALUE
+from .bigvgan import BigVGAN as Generator
 
 h = None
 device = None

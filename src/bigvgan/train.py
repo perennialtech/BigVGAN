@@ -13,6 +13,7 @@ import os
 import time
 import argparse
 import json
+from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
@@ -20,24 +21,24 @@ from torch.utils.data import DistributedSampler, DataLoader
 import torch.multiprocessing as mp
 from torch.distributed import init_process_group
 from torch.nn.parallel import DistributedDataParallel
-from env import AttrDict, build_env
-from meldataset import MelDataset, mel_spectrogram, get_dataset_filelist, MAX_WAV_VALUE
+from .env import AttrDict, build_env
+from .meldataset import MelDataset, mel_spectrogram, get_dataset_filelist, MAX_WAV_VALUE
 
-from bigvgan import BigVGAN
-from discriminators import (
+from .bigvgan import BigVGAN
+from .discriminators import (
     MultiPeriodDiscriminator,
     MultiResolutionDiscriminator,
     MultiBandDiscriminator,
     MultiScaleSubbandCQTDiscriminator,
 )
-from loss import (
+from .loss import (
     feature_loss,
     generator_loss,
     discriminator_loss,
     MultiScaleMelSpectrogramLoss,
 )
 
-from utils import (
+from .utils import (
     plot_spectrogram,
     plot_spectrogram_clipped,
     scan_checkpoint,
@@ -45,7 +46,7 @@ from utils import (
     save_checkpoint,
     save_audio,
 )
-import torchaudio as ta
+import torchaudio as ta  # pyright: ignore[reportMissingImports]
 from pesq import pesq
 from tqdm import tqdm
 import auraloss
@@ -95,10 +96,11 @@ def train(rank, a, h):
         print(
             "[INFO] using multi-scale Mel l1 loss of BigVGAN-v2 instead of the original single-scale loss"
         )
-        fn_mel_loss_multiscale = MultiScaleMelSpectrogramLoss(
-            sampling_rate=h.sampling_rate
+        fn_mel_loss_multiscale: Optional[MultiScaleMelSpectrogramLoss] = (
+            MultiScaleMelSpectrogramLoss(sampling_rate=h.sampling_rate)
         )  # NOTE: accepts waveform as input
     else:
+        fn_mel_loss_multiscale = None
         fn_mel_loss_singlescale = F.l1_loss
 
     # Print the model & number of parameters, and create or scan the latest checkpoint from checkpoints directory
@@ -112,6 +114,8 @@ def train(rank, a, h):
         os.makedirs(a.checkpoint_path, exist_ok=True)
         print(f"Checkpoints directory: {a.checkpoint_path}")
 
+    cp_g = None
+    cp_do = None
     if os.path.isdir(a.checkpoint_path):
         # New in v2.1: If the step prefix pattern-based checkpoints are not found, also check for renamed files in Hugging Face Hub to resume training
         cp_g = scan_checkpoint(
@@ -144,12 +148,12 @@ def train(rank, a, h):
         mrd = DistributedDataParallel(mrd, device_ids=[rank]).to(device)
 
     optim_g = torch.optim.AdamW(
-        generator.parameters(), h.learning_rate, betas=[h.adam_b1, h.adam_b2]
+        generator.parameters(), h.learning_rate, betas=(h.adam_b1, h.adam_b2)
     )
     optim_d = torch.optim.AdamW(
         itertools.chain(mrd.parameters(), mpd.parameters()),
         h.learning_rate,
-        betas=[h.adam_b1, h.adam_b2],
+        betas=(h.adam_b1, h.adam_b2),
     )
 
     if state_dict_do is not None:
@@ -204,6 +208,10 @@ def train(rank, a, h):
         drop_last=True,
     )
 
+    sw: Optional[SummaryWriter] = None
+    validation_loader: Optional[DataLoader[Any]] = None
+    list_unseen_validation_loader: list[DataLoader[Any]] = []
+    list_unseen_validset: list[MelDataset] = []
     if rank == 0:
         validset = MelDataset(
             validation_filelist,
@@ -234,8 +242,6 @@ def train(rank, a, h):
             drop_last=True,
         )
 
-        list_unseen_validset = []
-        list_unseen_validation_loader = []
         for i in range(len(list_unseen_validation_filelist)):
             unseen_validset = MelDataset(
                 list_unseen_validation_filelist[i],
@@ -275,11 +281,12 @@ def train(rank, a, h):
 
     """
     Validation loop, "mode" parameter is automatically defined as (seen or unseen)_(name of the dataset).
-    If the name of the dataset contains "nonspeech", it skips PESQ calculation to prevent errors 
+    If the name of the dataset contains "nonspeech", it skips PESQ calculation to prevent errors
     """
 
     def validate(rank, a, h, loader, mode="seen"):
         assert rank == 0, "validate should only run on rank=0"
+        assert sw is not None
         generator.eval()
         torch.cuda.empty_cache()
 
@@ -305,7 +312,9 @@ def train(rank, a, h):
             print(f"step {steps} {mode} speaker validation...")
 
             # Loop over validation set and compute metrics
+            num_batches = 0
             for j, batch in enumerate(tqdm(loader)):
+                num_batches = j + 1
                 x, y, _, y_mel = batch
                 y = y.to(device)
                 if hasattr(generator, "module"):
@@ -421,9 +430,13 @@ def train(rank, a, h):
                         steps,
                     )
 
-            val_err = val_err_tot / (j + 1)
-            val_pesq = val_pesq_tot / (j + 1)
-            val_mrstft = val_mrstft_tot / (j + 1)
+            if num_batches == 0:
+                generator.train()
+                return
+
+            val_err = val_err_tot / num_batches
+            val_pesq = val_pesq_tot / num_batches
+            val_mrstft = val_mrstft_tot / num_batches
             # Log evaluation metrics to Tensorboard
             sw.add_scalar(f"validation_{mode}/mel_spec_error", val_err, steps)
             sw.add_scalar(f"validation_{mode}/pesq", val_pesq, steps)
@@ -433,13 +446,14 @@ def train(rank, a, h):
 
     # If the checkpoint is loaded, start with validation loop
     if steps != 0 and rank == 0 and not a.debug:
+        assert validation_loader is not None
         if not a.skip_seen:
             validate(
                 rank,
                 a,
                 h,
                 validation_loader,
-                mode=f"seen_{train_loader.dataset.name}",
+                mode=f"seen_{trainset.name}",
             )
         for i in range(len(list_unseen_validation_loader)):
             validate(
@@ -447,7 +461,7 @@ def train(rank, a, h):
                 a,
                 h,
                 list_unseen_validation_loader[i],
-                mode=f"unseen_{list_unseen_validation_loader[i].dataset.name}",
+                mode=f"unseen_{list_unseen_validset[i].name}",
             )
     # Exit the script if --evaluate is set to True
     if a.evaluate:
@@ -458,16 +472,18 @@ def train(rank, a, h):
     mpd.train()
     mrd.train()
     for epoch in range(max(0, last_epoch), a.training_epochs):
+        start = time.time()
         if rank == 0:
-            start = time.time()
             print(f"Epoch: {epoch + 1}")
 
         if h.num_gpus > 1:
+            assert train_sampler is not None
             train_sampler.set_epoch(epoch)
 
         for i, batch in enumerate(train_loader):
+            start_b = time.time()
             if rank == 0:
-                start_b = time.time()
+                pass
             x, y, _, y_mel = batch
 
             x = x.to(device, non_blocking=True)
@@ -531,6 +547,7 @@ def train(rank, a, h):
                 "lambda_melloss", 45.0
             )  # Defaults to 45 in BigVGAN-v1 if not set
             if h.get("use_multiscale_melloss", False):  # uses wav <y, y_g_hat> for loss
+                assert fn_mel_loss_multiscale is not None
                 loss_mel = fn_mel_loss_multiscale(y, y_g_hat) * lambda_melloss
             else:  # Uses mel <y_mel, y_g_hat_mel> for loss
                 loss_mel = fn_mel_loss_singlescale(y_mel, y_g_hat_mel) * lambda_melloss
@@ -582,8 +599,8 @@ def train(rank, a, h):
                     save_checkpoint(
                         checkpoint_path,
                         {
-                            "generator": (
-                                generator.module if h.num_gpus > 1 else generator
+                            "generator": getattr(
+                                generator, "module", generator
                             ).state_dict()
                         },
                     )
@@ -591,8 +608,8 @@ def train(rank, a, h):
                     save_checkpoint(
                         checkpoint_path,
                         {
-                            "mpd": (mpd.module if h.num_gpus > 1 else mpd).state_dict(),
-                            "mrd": (mrd.module if h.num_gpus > 1 else mrd).state_dict(),
+                            "mpd": getattr(mpd, "module", mpd).state_dict(),
+                            "mrd": getattr(mrd, "module", mrd).state_dict(),
                             "optim_g": optim_g.state_dict(),
                             "optim_d": optim_d.state_dict(),
                             "steps": steps,
@@ -602,6 +619,7 @@ def train(rank, a, h):
 
                 # Tensorboard summary logging
                 if steps % a.summary_interval == 0:
+                    assert sw is not None
                     mel_error = (
                         loss_mel.item() / lambda_melloss
                     )  # Log training mel regression loss to tensorboard
@@ -626,6 +644,7 @@ def train(rank, a, h):
 
                 # Validation
                 if steps % a.validation_interval == 0:
+                    assert sw is not None
                     # Plot training input x so far used
                     for i_x in range(x.shape[0]):
                         sw.add_figure(
@@ -642,12 +661,13 @@ def train(rank, a, h):
 
                     # Seen and unseen speakers validation loops
                     if not a.debug and steps != 0:
+                        assert validation_loader is not None
                         validate(
                             rank,
                             a,
                             h,
                             validation_loader,
-                            mode=f"seen_{train_loader.dataset.name}",
+                            mode=f"seen_{trainset.name}",
                         )
                         for i in range(len(list_unseen_validation_loader)):
                             validate(
@@ -655,7 +675,7 @@ def train(rank, a, h):
                                 a,
                                 h,
                                 list_unseen_validation_loader[i],
-                                mode=f"unseen_{list_unseen_validation_loader[i].dataset.name}",
+                                mode=f"unseen_{list_unseen_validset[i].name}",
                             )
             steps += 1
 

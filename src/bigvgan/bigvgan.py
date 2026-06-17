@@ -7,17 +7,17 @@
 import os
 import json
 from pathlib import Path
-from typing import Optional, Union, Dict
+from typing import Any, Optional, Union, Dict, cast
 
 import torch
 import torch.nn as nn
 from torch.nn import Conv1d, ConvTranspose1d
 from torch.nn.utils import weight_norm, remove_weight_norm
 
-import activations
-from utils import init_weights, get_padding
-from alias_free_activation.torch.act import Activation1d as TorchActivation1d
-from env import AttrDict
+from . import activations
+from .utils import init_weights, get_padding
+from .alias_free_activation.torch.act import Activation1d as TorchActivation1d
+from .env import AttrDict
 
 from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
@@ -46,8 +46,8 @@ class AMPBlock1(torch.nn.Module):
         h: AttrDict,
         channels: int,
         kernel_size: int = 3,
-        dilation: tuple = (1, 3, 5),
-        activation: str = None,
+        dilation: tuple[int, ...] = (1, 3, 5),
+        activation: Optional[str] = None,
     ):
         super().__init__()
 
@@ -92,8 +92,9 @@ class AMPBlock1(torch.nn.Module):
         )  # Total number of conv layers
 
         # Select which Activation1d, lazy-load cuda version to ensure backward compatibility
+        Activation1d: Any
         if self.h.get("use_cuda_kernel", False):
-            from alias_free_activation.cuda.activation1d import (
+            from .alias_free_activation.cuda.activation1d import (
                 Activation1d as CudaActivation1d,
             )
 
@@ -165,8 +166,8 @@ class AMPBlock2(torch.nn.Module):
         h: AttrDict,
         channels: int,
         kernel_size: int = 3,
-        dilation: tuple = (1, 3, 5),
-        activation: str = None,
+        dilation: tuple[int, ...] = (1, 3, 5),
+        activation: Optional[str] = None,
     ):
         super().__init__()
 
@@ -192,8 +193,9 @@ class AMPBlock2(torch.nn.Module):
         self.num_layers = len(self.convs)  # Total number of conv layers
 
         # Select which Activation1d, lazy-load cuda version to ensure backward compatibility
+        Activation1d: Any
         if self.h.get("use_cuda_kernel", False):
-            from alias_free_activation.cuda.activation1d import (
+            from .alias_free_activation.cuda.activation1d import (
                 Activation1d as CudaActivation1d,
             )
 
@@ -270,8 +272,9 @@ class BigVGAN(
         self.h["use_cuda_kernel"] = use_cuda_kernel
 
         # Select which Activation1d, lazy-load cuda version to ensure backward compatibility
+        Activation1d: Any
         if self.h.get("use_cuda_kernel", False):
-            from alias_free_activation.cuda.activation1d import (
+            from .alias_free_activation.cuda.activation1d import (
                 Activation1d as CudaActivation1d,
             )
 
@@ -298,7 +301,7 @@ class BigVGAN(
             )
 
         # Transposed conv-based upsamplers. does not apply anti-aliasing
-        self.ups = nn.ModuleList()
+        self.ups: nn.ModuleList = nn.ModuleList()
         for i, (u, k) in enumerate(zip(h.upsample_rates, h.upsample_kernel_sizes)):
             self.ups.append(
                 nn.ModuleList(
@@ -318,6 +321,7 @@ class BigVGAN(
 
         # Residual blocks using anti-aliased multi-periodicity composition modules (AMP)
         self.resblocks = nn.ModuleList()
+        ch = h.upsample_initial_channel // (2**self.num_upsamples)
         for i in range(len(self.ups)):
             ch = h.upsample_initial_channel // (2 ** (i + 1))
             for j, (k, d) in enumerate(
@@ -364,15 +368,17 @@ class BigVGAN(
 
         for i in range(self.num_upsamples):
             # Upsampling
-            for i_up in range(len(self.ups[i])):
-                x = self.ups[i][i_up](x)
+            for upsample in cast(nn.ModuleList, self.ups[i]):
+                x = upsample(x)
             # AMP blocks
-            xs = None
-            for j in range(self.num_kernels):
-                if xs is None:
-                    xs = self.resblocks[i * self.num_kernels + j](x)
-                else:
-                    xs += self.resblocks[i * self.num_kernels + j](x)
+            if self.num_kernels <= 0:
+                raise RuntimeError(
+                    "BigVGAN requires at least one residual block kernel"
+                )
+            offset = i * self.num_kernels
+            xs = self.resblocks[offset](x)
+            for j in range(1, self.num_kernels):
+                xs = xs + self.resblocks[offset + j](x)
             x = xs / self.num_kernels
 
         # Post-conv
@@ -389,8 +395,8 @@ class BigVGAN(
     def remove_weight_norm(self):
         try:
             print("Removing weight norm...")
-            for l in self.ups:
-                for l_i in l:
+            for upsample_layers in self.ups:
+                for l_i in cast(nn.ModuleList, upsample_layers):
                     remove_weight_norm(l_i)
             for l in self.resblocks:
                 l.remove_weight_norm()
@@ -416,11 +422,11 @@ class BigVGAN(
         cls,
         *,
         model_id: str,
-        revision: str,
-        cache_dir: str,
+        revision: Optional[str],
+        cache_dir: Optional[Union[str, Path]],
         force_download: bool,
-        proxies: Optional[Dict],
-        resume_download: bool,
+        proxies: Optional[Dict[str, str]],
+        resume_download: Optional[bool],
         local_files_only: bool,
         token: Union[str, bool, None],
         map_location: str = "cpu",  # Additional argument
