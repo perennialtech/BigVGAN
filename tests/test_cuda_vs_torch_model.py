@@ -91,23 +91,23 @@ if __name__ == "__main__":
     # define number of samples and length of mel frame to benchmark
     num_sample = 10
     num_mel_frame = 16384
-    
+
     # CUDA kernel correctness check
     diff = 0.0
     for i in tqdm(range(num_sample)):
         # Random mel
         data = torch.rand((1, h.num_mels, num_mel_frame), device="cuda")
-                
+
         with torch.inference_mode():
             audio_original = generator_original(data)
-            
+
         with torch.inference_mode():
             audio_cuda_kernel = generator_cuda_kernel(data)
 
         # Both outputs should be (almost) the same
         test_result = (audio_original - audio_cuda_kernel).abs()
         diff += test_result.mean(dim=-1).item()
-    
+
     diff /= num_sample
     if (
         diff <= 2e-3
@@ -125,9 +125,9 @@ if __name__ == "__main__":
             f"\n > fused_values={audio_cuda_kernel[-1][-1][-30:].tolist()}, "
             f"\n > torch_values={audio_original[-1][-1][-30:].tolist()}"
         )
-    
+
     del data, audio_original, audio_cuda_kernel
-    
+
     # Variables for tracking total time and VRAM usage
     toc_total_original = 0
     toc_total_cuda_kernel = 0
@@ -145,10 +145,10 @@ if __name__ == "__main__":
             audio_original = generator_original(data)
         torch.cuda.synchronize()
         toc = time() - tic
-        toc_total_original += toc   
+        toc_total_original += toc
 
         vram_used_original_total += torch.cuda.max_memory_allocated(device="cuda")
-        
+
         del data, audio_original
         torch.cuda.empty_cache()
 
@@ -163,11 +163,11 @@ if __name__ == "__main__":
         torch.cuda.synchronize()
         toc = time() - tic
         toc_total_cuda_kernel += toc
-        
+
         audio_length_total += audio_cuda_kernel.shape[-1]
-        
+
         vram_used_cuda_kernel_total += torch.cuda.max_memory_allocated(device="cuda")
-        
+
         del data, audio_cuda_kernel
         torch.cuda.empty_cache()
 
@@ -175,8 +175,8 @@ if __name__ == "__main__":
     audio_second = audio_length_total / h.sampling_rate
     khz_original = audio_length_total / toc_total_original / 1000
     khz_cuda_kernel = audio_length_total / toc_total_cuda_kernel / 1000
-    vram_used_original_gb = vram_used_original_total / num_sample / (1024 ** 3)
-    vram_used_cuda_kernel_gb = vram_used_cuda_kernel_total / num_sample / (1024 ** 3)
+    vram_used_original_gb = vram_used_original_total / num_sample / (1024**3)
+    vram_used_cuda_kernel_gb = vram_used_cuda_kernel_total / num_sample / (1024**3)
 
     # Print results
     print(
@@ -186,7 +186,9 @@ if __name__ == "__main__":
         f"CUDA kernel BigVGAN: took {toc_total_cuda_kernel:.2f} seconds to generate {audio_second:.2f} seconds of audio, {khz_cuda_kernel:.1f}kHz, {audio_second / toc_total_cuda_kernel:.1f} faster than realtime, VRAM used {vram_used_cuda_kernel_gb:.1f} GB"
     )
     print(f"speedup of CUDA kernel: {khz_cuda_kernel / khz_original}")
-    print(f"VRAM saving of CUDA kernel: {vram_used_original_gb / vram_used_cuda_kernel_gb}")
+    print(
+        f"VRAM saving of CUDA kernel: {vram_used_original_gb / vram_used_cuda_kernel_gb}"
+    )
 
     # Use artificial sine waves for inference test
     audio_real, sr = generate_soundwave(duration=5.0, sr=h.sampling_rate)

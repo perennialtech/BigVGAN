@@ -324,11 +324,13 @@ def train(rank, a, h):
                     h.fmax_for_loss,
                 )
                 min_t = min(y_mel.size(-1), y_g_hat_mel.size(-1))
-                val_err_tot += F.l1_loss(y_mel[...,:min_t], y_g_hat_mel[...,:min_t]).item()
+                val_err_tot += F.l1_loss(
+                    y_mel[..., :min_t], y_g_hat_mel[..., :min_t]
+                ).item()
 
                 # PESQ calculation. only evaluate PESQ if it's speech signal (nonspeech PESQ will error out)
                 if (
-                    not "nonspeech" in mode
+                    "nonspeech" not in mode
                 ):  # Skips if the name of dataset (in mode string) contains "nonspeech"
 
                     # Resample to 16000 for pesq
@@ -342,7 +344,9 @@ def train(rank, a, h):
 
                 # MRSTFT calculation
                 min_t = min(y.size(-1), y_g_hat.size(-1))
-                val_mrstft_tot += loss_mrstft(y_g_hat[...,:min_t], y[...,:min_t]).item()
+                val_mrstft_tot += loss_mrstft(
+                    y_g_hat[..., :min_t], y[..., :min_t]
+                ).item()
 
                 # Log audio and figures to Tensorboard
                 if j % a.eval_subsample == 0:  # Subsample every nth from validation set

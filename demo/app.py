@@ -22,10 +22,10 @@ import PIL
 if torch.cuda.is_available():
     device = torch.device("cuda")
     torch.backends.cudnn.benchmark = False
-    print(f"using GPU")
+    print("using GPU")
 else:
     device = torch.device("cpu")
-    print(f"using CPU")
+    print("using CPU")
 
 
 def inference_gradio(input, model_choice):  # Input is audio waveform in [T, channel]
@@ -251,8 +251,7 @@ for model_name in LIST_MODEL_ID:
 iface = gr.Blocks(css=css, title="BigVGAN - Demo")
 
 with iface:
-    gr.HTML(
-        """
+    gr.HTML("""
         <div style="text-align: center; max-width: 900px; margin: 0 auto;">
             <div
             style="
@@ -270,10 +269,8 @@ with iface:
             <a href="https://arxiv.org/abs/2206.04658">[Paper]</a>  <a href="https://github.com/NVIDIA/BigVGAN">[Code]</a>  <a href="https://bigvgan-demo.github.io/">[Demo]</a>  <a href="https://research.nvidia.com/labs/adlr/projects/bigvgan/">[Project page]</a>
             </p>
         </div>
-        """
-    )
-    gr.HTML(
-        """
+        """)
+    gr.HTML("""
         <div>
         <h3>News</h3>
         <p>[Jul 2024] We release BigVGAN-v2 along with pretrained checkpoints. Below are the highlights:</p>
@@ -284,17 +281,14 @@ with iface:
             <li>We provide pretrained checkpoints of BigVGAN-v2 using diverse audio configurations, supporting up to 44 kHz sampling rate and 512x upsampling ratio. See the table below for the link.</li>
         </ul>
         </div>
-        """
-    )
-    gr.HTML(
-        """
+        """)
+    gr.HTML("""
         <div>
         <h3>Model Overview</h3>
         BigVGAN is a universal neural vocoder model that generates audio waveforms using mel spectrogram as inputs.
         <center><img src="https://user-images.githubusercontent.com/15963413/218609148-881e39df-33af-4af9-ab95-1427c4ebf062.png" width="800" style="margin-top: 20px; border-radius: 15px;"></center>
         </div>
-        """
-    )
+        """)
     with gr.Accordion("Input"):
 
         model_choice = gr.Dropdown(
@@ -428,14 +422,12 @@ with iface:
         lambda x: f'<a href="{base_url}{x}">{x}</a>'
     )
 
-    html_table = gr.HTML(
-        f"""
+    html_table = gr.HTML(f"""
         <div style="text-align: center;">
             {df.to_html(index=False, escape=False, classes='border="1" cellspacing="0" cellpadding="5" style="margin-left: auto; margin-right: auto;')}
             <p><b>NOTE: The v1 models are trained using speech audio datasets ONLY! (24kHz models: LibriTTS, 22kHz models: LibriTTS + VCTK + LJSpeech).</b></p>
         </div>
-        """
-    )
+        """)
 
 iface.queue()
 iface.launch()

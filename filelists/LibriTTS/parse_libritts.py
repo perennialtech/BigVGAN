@@ -1,7 +1,8 @@
 # Copyright (c) 2024 NVIDIA CORPORATION.
 #   Licensed under the MIT license.
 
-import os, glob
+import os
+import glob
 
 
 def get_wav_and_text_filelist(data_root, data_type, subsample=1):

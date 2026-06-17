@@ -6,13 +6,12 @@
 
 
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
 from librosa.filters import mel as librosa_mel_fn
 from scipy import signal
 
 import typing
-from typing import Optional, List, Union, Dict, Tuple
+from typing import List, Tuple
 from collections import namedtuple
 import math
 import functools
@@ -117,7 +116,7 @@ class MultiScaleMelSpectrogramLoss(nn.Module):
         window_type,
     ):
         """
-        Mirrors AudioSignal.mel_spectrogram used by BigVGAN-v2 training from: 
+        Mirrors AudioSignal.mel_spectrogram used by BigVGAN-v2 training from:
         https://github.com/descriptinc/audiotools/blob/master/audiotools/core/audio_signal.py
         """
         B, C, T = wav.shape

@@ -3,6 +3,7 @@
 
 import os
 import sys
+
 # to import modules from parent_dir
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
@@ -55,7 +56,6 @@ def test_anti_alias_activation():
             f"\n > fused_values={fused_activation_output[-1][-1][:].tolist()}, "
             f"\n > torch_values={torch_activation_output[-1][-1][:].tolist()}"
         )
-
 
 
 if __name__ == "__main__":
