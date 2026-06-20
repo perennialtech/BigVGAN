@@ -1,102 +1,226 @@
 # Copyright (c) 2024 NVIDIA CORPORATION.
 #   Licensed under the MIT license.
 
-from typing import Protocol
+from typing import Any
 
 import torch
 import torch.nn as nn
-from ..torch.resample import UpSample1d, DownSample1d
 
-# load fused CUDA kernel: this enables importing anti_alias_activation_cuda
+from ..torch.resample import UpSample1d, DownSample1d
 from . import load
 
+try:
+    anti_alias_activation_cuda = load.load()
+except Exception as exc:
+    raise RuntimeError(
+        "Failed to load the fused alias-free activation CUDA extension. "
+        "The CUDA alias-free activation path is explicit and does not fall back "
+        "to the unfused PyTorch implementation. Install a compatible CUDA/NVCC/"
+        "PyTorch toolchain or disable use_cuda_kernel."
+    ) from exc
 
-class _AntiAliasActivationCuda(Protocol):
+
+_EPS = 1.0e-9
+
+
+class FusedAliasFreeActivationFunction(torch.autograd.Function):
+    @staticmethod
     def forward(
-        self,
+        ctx: Any,
         inputs: torch.Tensor,
-        up_ftr: torch.Tensor,
-        down_ftr: torch.Tensor,
+        up_filter: torch.Tensor,
+        down_filter: torch.Tensor,
         alpha: torch.Tensor,
         beta: torch.Tensor,
-    ) -> torch.Tensor: ...
+        alpha_logscale: bool,
+    ) -> torch.Tensor:
+        if not inputs.is_cuda:
+            raise ValueError("Fused alias-free activation requires CUDA input.")
+        if inputs.dim() != 3:
+            raise ValueError(
+                f"Fused alias-free activation expects [B, C, T], got {tuple(inputs.shape)}."
+            )
+        if not inputs.is_contiguous():
+            raise ValueError("Fused alias-free activation requires contiguous input.")
+        if inputs.size(2) <= 0:
+            raise ValueError("Fused alias-free activation requires T > 0.")
+        if inputs.device.index != torch.cuda.current_device():
+            raise ValueError(
+                f"Input tensor is on CUDA device {inputs.device.index}, but current "
+                f"CUDA device is {torch.cuda.current_device()}."
+            )
+        if alpha.dim() != 1 or alpha.numel() != inputs.size(1):
+            raise ValueError(
+                f"alpha must be 1D with C={inputs.size(1)} elements, got {tuple(alpha.shape)}."
+            )
+        if beta.dim() != 1 or beta.numel() != inputs.size(1):
+            raise ValueError(
+                f"beta must be 1D with C={inputs.size(1)} elements, got {tuple(beta.shape)}."
+            )
 
-
-try:
-    anti_alias_activation_cuda: _AntiAliasActivationCuda = (
-        load.load()
-    )  # pyright: ignore[reportAssignmentType]
-    _CUDA_AVAILABLE = True
-except Exception as e:
-    import warnings
-
-    warnings.warn(
-        f"Failed to load anti-alias activation kernel: {e}. Falling back to un-fused layer."
-    )
-    anti_alias_activation_cuda = None  # type: ignore
-    _CUDA_AVAILABLE = False
-
-
-class FusedAntiAliasActivation(torch.autograd.Function):
-    """
-    Assumes filter size 12, replication padding on upsampling/downsampling, and logscale alpha/beta parameters as inputs.
-    The hyperparameters are hard-coded in the kernel to maximize speed.
-    NOTE: The fused kenrel is incorrect for Activation1d with different hyperparameters.
-    """
-
-    @staticmethod
-    def forward(ctx, inputs, up_ftr, down_ftr, alpha, beta):
-        activation_results = anti_alias_activation_cuda.forward(
-            inputs, up_ftr, down_ftr, alpha, beta
+        up_filter_f = (
+            up_filter.reshape(-1)
+            .to(device=inputs.device, dtype=torch.float32)
+            .contiguous()
+        )
+        down_filter_f = (
+            down_filter.reshape(-1)
+            .to(device=inputs.device, dtype=torch.float32)
+            .contiguous()
         )
 
-        return activation_results
+        if up_filter_f.numel() != 12 or down_filter_f.numel() != 12:
+            raise ValueError(
+                "Fused alias-free activation supports only 12-tap up/down filters."
+            )
+
+        alpha_f = alpha.to(device=inputs.device, dtype=torch.float32).contiguous()
+        beta_f = beta.to(device=inputs.device, dtype=torch.float32).contiguous()
+
+        if alpha_logscale:
+            alpha_eff = torch.exp(alpha_f).contiguous()
+            beta_eff = torch.exp(beta_f).contiguous()
+        else:
+            alpha_eff = alpha_f
+            beta_eff = beta_f
+
+        inv_beta = torch.reciprocal(beta_eff + _EPS).contiguous()
+        alpha_over_beta = (alpha_eff * inv_beta).contiguous()
+
+        outputs = anti_alias_activation_cuda.forward(
+            inputs,
+            up_filter_f,
+            down_filter_f,
+            alpha_eff,
+            inv_beta,
+        )
+
+        ctx.save_for_backward(
+            inputs,
+            up_filter_f,
+            down_filter_f,
+            alpha_eff,
+            beta_eff,
+            inv_beta,
+            alpha_over_beta,
+        )
+        ctx.alpha_logscale = alpha_logscale
+        ctx.input_dtype = inputs.dtype
+        ctx.alpha_dtype = alpha.dtype
+        ctx.beta_dtype = beta.dtype
+
+        return outputs
 
     @staticmethod
-    def backward(ctx, *grad_outputs):
-        raise NotImplementedError
+    def backward(ctx: Any, grad_outputs: torch.Tensor):
+        (
+            inputs,
+            up_filter,
+            down_filter,
+            alpha_eff,
+            beta_eff,
+            inv_beta,
+            alpha_over_beta,
+        ) = ctx.saved_tensors
+
+        grad_outputs = grad_outputs.contiguous()
+
+        grad_input_f32, grad_alpha_eff, grad_inv_beta = (
+            anti_alias_activation_cuda.backward(
+                grad_outputs,
+                inputs,
+                up_filter,
+                down_filter,
+                alpha_eff,
+                inv_beta,
+                alpha_over_beta,
+            )
+        )
+
+        grad_beta_eff = -grad_inv_beta * inv_beta * inv_beta
+
+        if ctx.alpha_logscale:
+            grad_alpha = grad_alpha_eff * alpha_eff
+            grad_beta = grad_beta_eff * beta_eff
+        else:
+            grad_alpha = grad_alpha_eff
+            grad_beta = grad_beta_eff
+
+        grad_input = grad_input_f32.to(dtype=ctx.input_dtype)
+        grad_alpha = grad_alpha.to(dtype=ctx.alpha_dtype)
+        grad_beta = grad_beta.to(dtype=ctx.beta_dtype)
+
+        return grad_input, None, None, grad_alpha, grad_beta, None
 
 
-class Activation1d(nn.Module):
+class AliasFreeActivationCuda(nn.Module):
+    """
+    Fully fused CUDA alias-free activation.
+
+    This is not a silent optional acceleration wrapper. If this class is used,
+    the CUDA extension must be available and the configuration must exactly match
+    the supported fused contract:
+
+    - input shape: contiguous [B, C, T]
+    - up_ratio = 2
+    - down_ratio = 2
+    - up_kernel_size = 12
+    - down_kernel_size = 12
+    - CUDA input tensor on the current CUDA device
+    - input dtype: float32, float16, or bfloat16
+    - internal FIR/activation accumulation: float32
+
+    Forward and backward are implemented by the custom CUDA extension.
+    """
+
     def __init__(
         self,
-        activation,
+        activation: nn.Module,
         up_ratio: int = 2,
         down_ratio: int = 2,
         up_kernel_size: int = 12,
         down_kernel_size: int = 12,
-        fused: bool = True,
     ):
         super().__init__()
+
+        if up_ratio != 2:
+            raise ValueError(
+                f"Fused CUDA alias-free activation supports up_ratio=2, got {up_ratio}."
+            )
+        if down_ratio != 2:
+            raise ValueError(
+                f"Fused CUDA alias-free activation supports down_ratio=2, got {down_ratio}."
+            )
+        if up_kernel_size != 12:
+            raise ValueError(
+                f"Fused CUDA alias-free activation supports up_kernel_size=12, got {up_kernel_size}."
+            )
+        if down_kernel_size != 12:
+            raise ValueError(
+                f"Fused CUDA alias-free activation supports down_kernel_size=12, got {down_kernel_size}."
+            )
+        if not hasattr(activation, "alpha"):
+            raise TypeError("activation must expose an alpha parameter.")
+        if not hasattr(activation, "alpha_logscale"):
+            raise TypeError("activation must expose alpha_logscale.")
+
         self.up_ratio = up_ratio
         self.down_ratio = down_ratio
         self.act = activation
         self.upsample = UpSample1d(up_ratio, up_kernel_size)
         self.downsample = DownSample1d(down_ratio, down_kernel_size)
 
-        self.fused = fused and _CUDA_AVAILABLE
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        beta = getattr(self.act, "beta", self.act.alpha)
 
-    def forward(self, x):
-        if not self.fused:
-            x = self.upsample(x)
-            x = self.act(x)
-            x = self.downsample(x)
-            return x
-        else:
-            if self.act.__class__.__name__ == "Snake":
-                beta = self.act.alpha.data  # Snake uses same params for alpha and beta
-            else:
-                beta = (
-                    self.act.beta.data
-                )  # Snakebeta uses different params for alpha and beta
-            alpha = self.act.alpha.data
-            if (
-                not self.act.alpha_logscale
-            ):  # Exp baked into cuda kernel, cancel it out with a log
-                alpha = torch.log(alpha)
-                beta = torch.log(beta)
+        return FusedAliasFreeActivationFunction.apply(
+            x,
+            self.upsample.filter,
+            self.downsample.lowpass.filter,
+            self.act.alpha,
+            beta,
+            bool(self.act.alpha_logscale),
+        )
 
-            x = FusedAntiAliasActivation.apply(
-                x, self.upsample.filter, self.downsample.lowpass.filter, alpha, beta
-            )
-            return x
+
+Activation1d = AliasFreeActivationCuda
