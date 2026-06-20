@@ -16,9 +16,23 @@ dependencies = [
     "scipy>=1.17",
     "soundfile>=0.14",
     "tensorboard>=2.20",
+    "tqdm>=4.68",
+]
+
+[project.optional-dependencies]
+cpu = [
     "torch==2.11",
     "torchaudio==2.11",
-    "tqdm>=4.68",
+]
+cuda = [
+    "torch==2.11; sys_platform != 'darwin'",
+    "torchaudio==2.11; sys_platform != 'darwin'",
+]
+rocm = [
+    "torch==2.11; sys_platform == 'linux'",
+    "torchaudio==2.11; sys_platform == 'linux'",
+    "pytorch-triton-rocm; sys_platform == 'linux'",
+    "triton-rocm; sys_platform == 'linux'",
 ]
 
 [dependency-groups]
@@ -27,6 +41,48 @@ dev = [
     "black>=26.5.1",
     "isort>=8.0.1",
     "ruff>=0.15.17",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "cuda" },
+        { extra = "rocm" },
+    ],
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm72"
+url = "https://download.pytorch.org/whl/rocm7.2"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", extra = "cuda", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-rocm72", extra = "rocm", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", extra = "cpu" },
+]
+torchaudio = [
+    { index = "pytorch-cu128", extra = "cuda", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-rocm72", extra = "rocm", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", extra = "cpu" },
+]
+pytorch-triton-rocm = [
+    { index = "pytorch-rocm72", extra = "rocm", marker = "sys_platform == 'linux'" },
+]
+triton-rocm = [
+    { index = "pytorch-rocm72", extra = "rocm", marker = "sys_platform == 'linux'" },
 ]
 
 [build-system]
