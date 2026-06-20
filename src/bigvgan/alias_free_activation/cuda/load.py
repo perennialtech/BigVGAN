@@ -14,7 +14,12 @@ def load():
     is_rocm = getattr(torch.version, "hip", None) is not None
 
     srcpath = pathlib.Path(__file__).parent.absolute()
-    buildpath = srcpath / "build"
+    buildpath = pathlib.Path(
+        os.environ.get(
+            "TORCH_EXTENSIONS_DIR",
+            pathlib.Path.home() / ".cache" / "torch_extensions" / "bigvgan",
+        )
+    )
     _create_build_dir(buildpath)
 
     sources = [
