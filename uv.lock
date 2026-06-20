@@ -172,7 +172,7 @@ requires-dist = [
     { name = "ninja", specifier = ">=1.13" },
     { name = "nnaudio", specifier = ">=0.3" },
     { name = "numpy", specifier = ">=2.4" },
-    { name = "nvidia-cuda-nvrtc-cu12", specifier = ">=12.9.86" },
+    { name = "nvidia-cuda-nvrtc-cu12", specifier = ">=12.0" },
     { name = "pesq", specifier = ">=0.0" },
     { name = "scipy", specifier = ">=1.17" },
     { name = "soundfile", specifier = ">=0.14" },
