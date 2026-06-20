@@ -28,3 +28,13 @@ dev = [
     "isort>=8.0.1",
     "ruff>=0.15.17",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.cpp", "*.cu", "*.h"]
