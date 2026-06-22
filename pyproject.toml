@@ -1,6 +1,6 @@
 [project]
 name = "bigvgan"
-version = "2.4.0"
+version = "2026.6.22"
 description = "A universal neural vocoder with large scale training"
 readme = "README.md"
 requires-python = ">=3.11"
