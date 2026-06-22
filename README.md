@@ -10,6 +10,9 @@
 
 ## News
 
+- **Jun 2026 (v2026.6.22):**
+  - This fork now publishes GitHub Release wheels for Python 3.11, PyTorch 2.11, and CUDA 13.0/cu130. The release wheel includes the optional fused CUDA extension built by CI for compute capability 7.5.
+
 - **Sep 2024 (v2.4):**
   - We have updated the pretrained checkpoints trained for 5M steps. This is final release of the BigVGAN-v2 checkpoints.
 
@@ -31,13 +34,66 @@
 
 This project is packaged through `pyproject.toml`, which is the source of truth for supported Python and dependency constraints.
 
-Clone the repository and install the package:
+#### Install the released wheel
+
+Release wheels are published on GitHub Releases.
+
+For `v2026.6.22`, the release wheel is built by CI for:
+
+- Python 3.11
+- Linux x86_64
+- PyTorch 2.11
+- CUDA 13.0/cu130
+- CUDA compute capability 7.5
+- the optional fused CUDA extension enabled
+
+Create an environment with Python 3.11, then install PyTorch and BigVGAN:
+
+```shell
+python -m pip install --upgrade pip
+
+python -m pip install \
+  --index-url https://download.pytorch.org/whl/cu130 \
+  "torch==2.11" "torchaudio==2.11"
+
+python -m pip install \
+  --extra-index-url https://download.pytorch.org/whl/cu130 \
+  "https://github.com/perennialtech/BigVGAN/releases/download/v2026.6.22/bigvgan-2026.6.22-cp311-cp311-linux_x86_64.whl"
+```
+
+Use this wheel if your environment matches the constraints above and you want to use `use_cuda_kernel=True` without compiling the CUDA extension locally.
+
+For a different Python version, CUDA/PyTorch build, operating system, or GPU architecture, install from source instead.
+
+#### Install from source without the CUDA extension
 
 ```shell
 git clone https://github.com/perennialtech/BigVGAN
 cd BigVGAN
+git checkout v2026.6.22
 python -m pip install .
 ```
+
+This installs BigVGAN without the optional fused CUDA extension.
+
+#### Install from source with the CUDA extension
+
+Install a PyTorch build matching your CUDA toolkit, then build with `BUILD_CUDA_EXT=1`.
+
+Example for PyTorch 2.11 with CUDA 13.0/cu130:
+
+```shell
+git clone https://github.com/perennialtech/BigVGAN
+cd BigVGAN
+git checkout v2026.6.22
+
+PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu130 \
+BUILD_CUDA_EXT=1 \
+TORCH_CUDA_ARCH_LIST="7.5" \
+python -m pip install .
+```
+
+Set `TORCH_CUDA_ARCH_LIST` for your GPU. Common examples are `7.5` for Turing, `8.0` for A100, `8.6` for RTX 30 series, `8.9` for RTX 40 series, and `9.0` for H100.
 
 For local development, install it in editable mode:
 
@@ -155,13 +211,21 @@ generator = BigVGAN(h, use_cuda_kernel=True)
 
 You can also pass `--use_cuda_kernel` to `bigvgan.inference` and `bigvgan.inference_e2e` to enable this feature.
 
-To use this feature, the package needs to be built with CUDA extension support. When building from source, ensure `BUILD_CUDA_EXT=1` is set in your environment:
+To use this feature, the package needs to be installed with CUDA extension support.
+
+The GitHub Release wheel for `2026.6.22` already includes the CUDA extension for the environment documented in [Installation](#installation), so `nvcc` is not required when using that wheel.
+
+When building from source, ensure `BUILD_CUDA_EXT=1` is set in your environment:
 
 ```shell
 BUILD_CUDA_EXT=1 python -m pip install .
 ```
 
-Please make sure that `nvcc` installed in your system matches the CUDA version your PyTorch build is using.
+For source builds, make sure that `nvcc` installed in your system matches the CUDA version your PyTorch build is using. Also set `TORCH_CUDA_ARCH_LIST` for your GPU, for example:
+
+```shell
+BUILD_CUDA_EXT=1 TORCH_CUDA_ARCH_LIST="8.0" python -m pip install .
+```
 
 We recommend running `test_cuda_vs_torch_model.py` first to check the correctness of the CUDA kernel. See below example command and its output, where it returns `[Success] test CUDA fused vs. plain torch BigVGAN inference`:
 
