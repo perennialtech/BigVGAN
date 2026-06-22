@@ -34,7 +34,7 @@ This project is packaged through `pyproject.toml`, which is the source of truth 
 Clone the repository and install the package:
 
 ```shell
-git clone https://github.com/NVIDIA/BigVGAN
+git clone https://github.com/perennialtech/BigVGAN
 cd BigVGAN
 python -m pip install .
 ```
