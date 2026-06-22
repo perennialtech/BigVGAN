@@ -11,15 +11,21 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build_wheels:
-    name: Build wheel on Python ${{ matrix.python-version }}
+    name: Build wheel on Python ${{ matrix.python-version }} / CUDA ${{ matrix.cuda-version }}
     runs-on: ubuntu-22.04
+
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11"]
-        cuda-version: ["13.0.2"]
+        include:
+          - python-version: "3.11"
+            cuda-version: "13.0.2"
+            torch-cuda-index: "cu130"
 
     steps:
       - name: Checkout code
@@ -27,6 +33,13 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          prune-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            .github/workflows/build_wheels.yml
+          cache-suffix: py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}-${{ matrix.torch-cuda-index }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -38,21 +51,45 @@ jobs:
         id: cuda-toolkit
         with:
           cuda: ${{ matrix.cuda-version }}
+          method: network
+          sub-packages: '["nvcc", "cudart-dev", "cccl"]'
+          log-file-suffix: py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}.txt
 
       - name: Install build dependencies
         run: |
-          uv pip install --system ninja build wheel setuptools
-          uv pip install --system torch --extra-index-url https://download.pytorch.org/whl/cu130
+          uv pip install --system \
+            "build>=1.5" \
+            "wheel>=0.47" \
+            "setuptools>=61.0" \
+            "ninja>=1.13" \
+            "numpy>=2.4"
+
+          uv pip install --system \
+            "torch==2.11" \
+            --index-url "https://download.pytorch.org/whl/${{ matrix.torch-cuda-index }}"
 
       - name: Build wheel
         env:
           CUDA_HOME: ${{ steps.cuda-toolkit.outputs.CUDA_PATH }}
+          CUDA_PATH: ${{ steps.cuda-toolkit.outputs.CUDA_PATH }}
           BUILD_CUDA_EXT: "1"
+          TORCH_CUDA_ARCH_LIST: "7.5"
         run: |
-          python -m build --wheel
+          nvcc -V
+
+          python - <<'PY'
+          import torch
+          from torch.utils.cpp_extension import CUDA_HOME
+
+          print(f"torch={torch.__version__}")
+          print(f"torch.version.cuda={torch.version.cuda}")
+          print(f"CUDA_HOME={CUDA_HOME}")
+          PY
+
+          python -m build --wheel --no-isolation
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: bigvgan-wheels-py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}
+          name: bigvgan-wheels-py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}-sm75
           path: dist/*.whl
