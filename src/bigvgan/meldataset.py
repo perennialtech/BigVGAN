@@ -13,7 +13,11 @@ import numpy as np
 import librosa
 from librosa.filters import mel as librosa_mel_fn
 import pathlib
-from tqdm import tqdm
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = lambda x, *args, **kwargs: x
 from typing import List, Tuple, Optional, Union
 from .env import AttrDict
 

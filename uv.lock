@@ -134,21 +134,25 @@ wheels = [
 
 [[package]]
 name = "bigvgan"
-version = "2.4.0"
+version = "2026.6.22"
 source = { editable = "." }
 dependencies = [
-    { name = "auraloss" },
     { name = "huggingface-hub" },
     { name = "librosa" },
-    { name = "matplotlib" },
-    { name = "nnaudio" },
     { name = "numpy" },
-    { name = "pesq" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "soundfile" },
-    { name = "tensorboard" },
     { name = "torch" },
+]
+
+[package.optional-dependencies]
+train = [
+    { name = "auraloss" },
+    { name = "matplotlib" },
+    { name = "nnaudio" },
+    { name = "pesq" },
+    { name = "tensorboard" },
     { name = "torchaudio" },
     { name = "tqdm" },
 ]
@@ -163,20 +167,21 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "auraloss", specifier = ">=0.4" },
+    { name = "auraloss", marker = "extra == 'train'", specifier = ">=0.4" },
     { name = "huggingface-hub", specifier = ">=1.19" },
     { name = "librosa", specifier = ">=0.11" },
-    { name = "matplotlib", specifier = ">=3.11" },
-    { name = "nnaudio", specifier = ">=0.3" },
+    { name = "matplotlib", marker = "extra == 'train'", specifier = ">=3.11" },
+    { name = "nnaudio", marker = "extra == 'train'", specifier = ">=0.3" },
     { name = "numpy", specifier = ">=2.4" },
-    { name = "pesq", specifier = ">=0.0" },
+    { name = "pesq", marker = "extra == 'train'", specifier = ">=0.0" },
     { name = "scipy", specifier = ">=1.17" },
     { name = "soundfile", specifier = ">=0.14" },
-    { name = "tensorboard", specifier = ">=2.20" },
+    { name = "tensorboard", marker = "extra == 'train'", specifier = ">=2.20" },
     { name = "torch", specifier = "==2.11" },
-    { name = "torchaudio", specifier = "==2.11" },
-    { name = "tqdm", specifier = ">=4.68" },
+    { name = "torchaudio", marker = "extra == 'train'", specifier = "==2.11" },
+    { name = "tqdm", marker = "extra == 'train'", specifier = ">=4.68" },
 ]
+provides-extras = ["train"]
 
 [package.metadata.requires-dev]
 dev = [
