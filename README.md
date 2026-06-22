@@ -9,12 +9,13 @@
 <center><img src="https://user-images.githubusercontent.com/15963413/218609148-881e39df-33af-4af9-ab95-1427c4ebf062.png" width="800"></center>
 
 ## News
+
 - **Sep 2024 (v2.4):**
   - We have updated the pretrained checkpoints trained for 5M steps. This is final release of the BigVGAN-v2 checkpoints.
 
 - **Jul 2024 (v2.3):**
   - General refactor and code improvements for improved readability.
-  - Fully fused CUDA kernel of anti-alised activation (upsampling + activation + downsampling) with inference speed benchmark.
+  - Fully fused CUDA kernel of anti-aliased activation (upsampling + activation + downsampling) with inference speed benchmark.
 
 - **Jul 2024 (v2.2):** The repository now includes an interactive local demo using gradio.
 
@@ -28,20 +29,23 @@
 
 ## Installation
 
-The codebase has been tested on Python `3.10` and PyTorch `2.3.1` conda packages with either `pytorch-cuda=12.1` or `pytorch-cuda=11.8`. Below is an example command to create the conda environment:
+This project is packaged through `pyproject.toml`, which is the source of truth for supported Python and dependency constraints.
 
-```shell
-conda create -n bigvgan python=3.10 pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
-conda activate bigvgan
-```
-
-Clone the repository and install dependencies:
+Clone the repository and install the package:
 
 ```shell
 git clone https://github.com/NVIDIA/BigVGAN
 cd BigVGAN
-pip install -r requirements.txt
+python -m pip install .
 ```
+
+For local development, install it in editable mode:
+
+```shell
+python -m pip install -e .
+```
+
+The CUDA extension is optional. See [Using Custom CUDA Kernel for Synthesis](#using-custom-cuda-kernel-for-synthesis) for CUDA build instructions.
 
 ## Inference Quickstart using 🤗 Hugging Face Hub
 
@@ -53,7 +57,7 @@ device = 'cuda'
 import torch
 import bigvgan
 import librosa
-from meldataset import get_mel_spectrogram
+from bigvgan.meldataset import get_mel_spectrogram
 
 # instantiate the model. You can optionally set use_cuda_kernel=True for faster inference.
 model = bigvgan.BigVGAN.from_pretrained('nvidia/bigvgan_v2_24khz_100band_256x', use_cuda_kernel=False)
@@ -81,9 +85,9 @@ wav_gen_int16 = (wav_gen_float * 32767.0).numpy().astype('int16') # wav_gen is n
 
 ## Local gradio demo <a href='https://github.com/gradio-app/gradio'><img src='https://img.shields.io/github/stars/gradio-app/gradio'></a>
 
-You can run a local gradio demo using below command:
+After installing BigVGAN, install the demo dependencies and run the app:
 
-```python
+```shell
 pip install -r demo/requirements.txt
 python demo/app.py
 ```
@@ -107,7 +111,7 @@ cd ../..
 Train BigVGAN model. Below is an example command for training BigVGAN-v2 using LibriTTS dataset at 24kHz with a full 100-band mel spectrogram as input:
 
 ```shell
-python train.py \
+python -m bigvgan.train \
 --config configs/bigvgan_v2_24khz_100band_256x.json \
 --input_wavs_dir filelists/LibriTTS \
 --input_training_file filelists/LibriTTS/train-full.txt \
@@ -123,7 +127,7 @@ Synthesize from BigVGAN model. Below is an example command for generating audio 
 It computes mel spectrograms using wav files from `--input_wavs_dir` and saves the generated audio to `--output_dir`.
 
 ```shell
-python inference.py \
+python -m bigvgan.inference \
 --checkpoint_file /path/to/your/bigvgan_v2_24khz_100band_256x/bigvgan_generator.pt \
 --input_wavs_dir /path/to/your/input_wav \
 --output_dir /path/to/your/output_wav
@@ -135,7 +139,7 @@ It loads mel spectrograms from `--input_mels_dir` and saves the generated audio 
 Make sure that the STFT hyperparameters for mel spectrogram are the same as the model, which are defined in `config.json` of the corresponding model.
 
 ```shell
-python inference_e2e.py \
+python -m bigvgan.inference_e2e \
 --checkpoint_file /path/to/your/bigvgan_v2_24khz_100band_256x/bigvgan_generator.pt \
 --input_mels_dir /path/to/your/input_mel \
 --output_dir /path/to/your/output_wav
@@ -149,15 +153,19 @@ You can apply the fast CUDA inference kernel by using a parameter `use_cuda_kern
 generator = BigVGAN(h, use_cuda_kernel=True)
 ```
 
-You can also pass `--use_cuda_kernel` to `inference.py` and `inference_e2e.py` to enable this feature.
+You can also pass `--use_cuda_kernel` to `bigvgan.inference` and `bigvgan.inference_e2e` to enable this feature.
 
-To use this feature, the package needs to be built with CUDA extension support. When building from source, ensure `BUILD_CUDA_EXT=1` is set in your environment. The codebase has been tested using CUDA `12.1`.
+To use this feature, the package needs to be built with CUDA extension support. When building from source, ensure `BUILD_CUDA_EXT=1` is set in your environment:
 
-Please make sure that `nvcc` installed in your system matches the version your PyTorch build is using.
+```shell
+BUILD_CUDA_EXT=1 python -m pip install .
+```
+
+Please make sure that `nvcc` installed in your system matches the CUDA version your PyTorch build is using.
 
 We recommend running `test_cuda_vs_torch_model.py` first to check the correctness of the CUDA kernel. See below example command and its output, where it returns `[Success] test CUDA fused vs. plain torch BigVGAN inference`:
 
-```python
+```shell
 python tests/test_cuda_vs_torch_model.py \
 --checkpoint_file /path/to/your/bigvgan_generator.pt
 ```
@@ -200,11 +208,11 @@ Note that the checkpoints use `snakebeta` activation with log scale parameteriza
 You can fine-tune the models by:
 
 1. downloading the checkpoints (both the generator weight and its discriminator/optimizer states)
-2. resuming training using your audio dataset by specifying `--checkpoint_path` that includes the checkpoints when launching `train.py`
+2. resuming training using your audio dataset by specifying `--checkpoint_path` that includes the checkpoints when launching `bigvgan.train`
 
 ## Training Details of BigVGAN-v2
 
-Comapred to the original BigVGAN, the pretrained checkpoints of BigVGAN-v2 used `batch_size=32` with a longer `segment_size=65536` and are trained using 8 A100 GPUs.
+Compared to the original BigVGAN, the pretrained checkpoints of BigVGAN-v2 used `batch_size=32` with a longer `segment_size=65536` and are trained using 8 A100 GPUs.
 
 Note that the BigVGAN-v2 `json` config files in `./configs` use `batch_size=4` as default to fit in a single A100 GPU for training. You can fine-tune the models adjusting `batch_size` depending on your GPUs.
 
