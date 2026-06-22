@@ -76,7 +76,7 @@ if __name__ == "__main__":
 
     print("loading plain Pytorch BigVGAN")
     generator_original = BigVGAN(h).to("cuda")
-    print("loading CUDA kernel BigVGAN with auto-build")
+    print("loading CUDA kernel BigVGAN")
     generator_cuda_kernel = BigVGAN(h, use_cuda_kernel=True).to("cuda")
 
     state_dict_g = load_checkpoint(args.checkpoint_file, "cuda")

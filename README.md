@@ -151,11 +151,11 @@ generator = BigVGAN(h, use_cuda_kernel=True)
 
 You can also pass `--use_cuda_kernel` to `inference.py` and `inference_e2e.py` to enable this feature.
 
-When applied for the first time, it builds the kernel using `nvcc` and `ninja`. If the build succeeds, the kernel is saved to `alias_free_activation/cuda/build` and the model automatically loads the kernel. The codebase has been tested using CUDA `12.1`.
+To use this feature, the package needs to be built with CUDA extension support. When building from source, ensure `BUILD_CUDA_EXT=1` is set in your environment. The codebase has been tested using CUDA `12.1`.
 
-Please make sure that both are installed in your system and `nvcc` installed in your system matches the version your PyTorch build is using.
+Please make sure that `nvcc` installed in your system matches the version your PyTorch build is using.
 
-We recommend running `test_cuda_vs_torch_model.py` first to build and check the correctness of the CUDA kernel. See below example command and its output, where it returns `[Success] test CUDA fused vs. plain torch BigVGAN inference`:
+We recommend running `test_cuda_vs_torch_model.py` first to check the correctness of the CUDA kernel. See below example command and its output, where it returns `[Success] test CUDA fused vs. plain torch BigVGAN inference`:
 
 ```python
 python tests/test_cuda_vs_torch_model.py \
@@ -165,12 +165,7 @@ python tests/test_cuda_vs_torch_model.py \
 ```shell
 loading plain Pytorch BigVGAN
 ...
-loading CUDA kernel BigVGAN with auto-build
-Detected CUDA files, patching ldflags
-Emitting ninja build file /path/to/your/BigVGAN/alias_free_activation/cuda/build/build.ninja..
-Building extension module anti_alias_activation_cuda...
-...
-Loading extension module anti_alias_activation_cuda...
+loading CUDA kernel BigVGAN
 ...
 Loading '/path/to/your/bigvgan_generator.pt'
 ...

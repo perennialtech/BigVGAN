@@ -1,0 +1,58 @@
+name: Build wheels
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build_wheels:
+    name: Build wheel on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+        cuda-version: ["13.0"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install CUDA Toolkit ${{ matrix.cuda-version }}
+        uses: Jimver/cuda-toolkit@v0.2.35
+        id: cuda-toolkit
+        with:
+          cuda: ${{ matrix.cuda-version }}
+
+      - name: Install build dependencies
+        run: |
+          uv pip install --system ninja build wheel setuptools
+          uv pip install --system torch --extra-index-url https://download.pytorch.org/whl/cu130
+
+      - name: Build wheel
+        env:
+          CUDA_HOME: ${{ steps.cuda-toolkit.outputs.CUDA_PATH }}
+          BUILD_CUDA_EXT: "1"
+        run: |
+          python -m build --wheel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: bigvgan-wheels-py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}
+          path: dist/*.whl

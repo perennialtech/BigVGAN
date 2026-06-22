@@ -248,8 +248,6 @@ class BigVGAN(
     Args:
         h (AttrDict): Hyperparameters.
         use_cuda_kernel (bool): If True, uses the fused CUDA alias-free activation operator.
-            The fused operator implements both forward and backward and enforces its supported
-            contract explicitly instead of silently falling back to the PyTorch implementation.
     """
 
     def __init__(self, h: AttrDict, use_cuda_kernel: bool = False):
@@ -423,11 +421,6 @@ class BigVGAN(
         if use_cuda_kernel:
             print(
                 "[INFO] use_cuda_kernel=True: using the fused CUDA alias-free activation operator."
-            )
-            print(
-                "[INFO] The CUDA path is strict: it requires a compatible CUDA/NVCC/PyTorch toolchain "
-                "and supported alias-free activation configuration. It will fail loudly instead of "
-                "falling back to the unfused PyTorch path."
             )
 
         model = cls(h, use_cuda_kernel=use_cuda_kernel)

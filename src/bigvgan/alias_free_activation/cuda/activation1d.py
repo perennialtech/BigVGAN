@@ -7,16 +7,15 @@ import torch
 import torch.nn as nn
 
 from ..torch.resample import UpSample1d, DownSample1d
-from . import load
 
 try:
-    anti_alias_activation_cuda = load.load()
+    try:
+        import bigvgan.anti_alias_activation_cuda as anti_alias_activation_cuda
+    except ImportError:
+        import anti_alias_activation_cuda
 except Exception as exc:
     raise RuntimeError(
-        "Failed to load the fused alias-free activation CUDA extension. "
-        "The CUDA alias-free activation path is explicit and does not fall back "
-        "to the unfused PyTorch implementation. Install a compatible CUDA/NVCC/"
-        "PyTorch toolchain or disable use_cuda_kernel."
+        "Failed to load the fused alias-free activation CUDA extension."
     ) from exc
 
 
@@ -156,21 +155,6 @@ class FusedAliasFreeActivationFunction(torch.autograd.Function):
 class AliasFreeActivationCuda(nn.Module):
     """
     Fully fused CUDA alias-free activation.
-
-    This is not a silent optional acceleration wrapper. If this class is used,
-    the CUDA extension must be available and the configuration must exactly match
-    the supported fused contract:
-
-    - input shape: contiguous [B, C, T]
-    - up_ratio = 2
-    - down_ratio = 2
-    - up_kernel_size = 12
-    - down_kernel_size = 12
-    - CUDA input tensor on the current CUDA device
-    - input dtype: float32, float16, or bfloat16
-    - internal FIR/activation accumulation: float32
-
-    Forward and backward are implemented by the custom CUDA extension.
     """
 
     def __init__(
