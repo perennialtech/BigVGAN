@@ -52,7 +52,7 @@ jobs:
         with:
           cuda: ${{ matrix.cuda-version }}
           method: network
-          sub-packages: '["nvcc", "cudart-dev", "cccl", "libcusparse-dev", "libcublas-dev", "libcurand-dev", "libcufft-dev"]'
+          sub-packages: '["nvcc", "cudart-dev", "cccl", "libraries-dev"]'
           log-file-suffix: py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}.txt
 
       - name: Install build frontend
