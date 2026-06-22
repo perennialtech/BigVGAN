@@ -55,18 +55,9 @@ jobs:
           sub-packages: '["nvcc", "cudart-dev", "cccl"]'
           log-file-suffix: py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}.txt
 
-      - name: Install build dependencies
+      - name: Install build frontend
         run: |
-          uv pip install --system \
-            "build>=1.5" \
-            "wheel>=0.47" \
-            "setuptools>=82.0" \
-            "ninja>=1.13" \
-            "numpy>=2.4"
-
-          uv pip install --system \
-            "torch==2.11" \
-            --index-url "https://download.pytorch.org/whl/${{ matrix.torch-cuda-index }}"
+          uv pip install --system "build>=1.5"
 
       - name: Build wheel
         env:
@@ -74,19 +65,13 @@ jobs:
           CUDA_PATH: ${{ steps.cuda-toolkit.outputs.CUDA_PATH }}
           BUILD_CUDA_EXT: "1"
           TORCH_CUDA_ARCH_LIST: "7.5"
+
+          PIP_INDEX_URL: "https://pypi.org/simple"
+          PIP_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/${{ matrix.torch-cuda-index }}"
         run: |
           nvcc -V
 
-          python - <<'PY'
-          import torch
-          from torch.utils.cpp_extension import CUDA_HOME
-
-          print(f"torch={torch.__version__}")
-          print(f"torch.version.cuda={torch.version.cuda}")
-          print(f"CUDA_HOME={CUDA_HOME}")
-          PY
-
-          python -m build --wheel --no-isolation
+          python -m build --wheel
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
