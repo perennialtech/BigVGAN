@@ -30,7 +30,7 @@ dev = [
 
 [build-system]
 requires = [
-    "setuptools>=82.0",
+    "setuptools>=81.0",
     "wheel>=0.47",
     "torch==2.11",
     "numpy>=2.4",
