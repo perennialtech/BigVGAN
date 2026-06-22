@@ -143,11 +143,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          find release-dist -type f -maxdepth 2 -print
+          find release-dist -maxdepth 2 -type f -print
 
       - name: Create release and upload wheels
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -159,12 +160,15 @@ jobs:
             exit 1
           fi
 
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
             echo "Release ${GITHUB_REF_NAME} already exists"
           else
             gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GH_REPO}" \
               --title "${GITHUB_REF_NAME}" \
               --generate-notes
           fi
 
-          gh release upload "${GITHUB_REF_NAME}" "${wheels[@]}" --clobber
+          gh release upload "${GITHUB_REF_NAME}" "${wheels[@]}" \
+            --repo "${GH_REPO}" \
+            --clobber
