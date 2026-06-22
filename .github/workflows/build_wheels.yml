@@ -6,9 +6,23 @@ on:
       - main
     tags:
       - "v*"
+    paths:
+      - "src/bigvgan/alias_free_activation/cuda/**/*.cu"
+      - "src/bigvgan/alias_free_activation/cuda/**/*.cpp"
+      - "src/bigvgan/alias_free_activation/cuda/**/*.h"
+      - ".github/workflows/build_wheels.yml"
+      - "pyproject.toml"
+
   pull_request:
     branches:
       - main
+    paths:
+      - "src/bigvgan/alias_free_activation/cuda/**/*.cu"
+      - "src/bigvgan/alias_free_activation/cuda/**/*.cpp"
+      - "src/bigvgan/alias_free_activation/cuda/**/*.h"
+      - ".github/workflows/build_wheels.yml"
+      - "pyproject.toml"
+
   workflow_dispatch:
 
 permissions:
@@ -46,6 +60,31 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Check tag matches pyproject version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+
+          PYPROJECT_VERSION="$(python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+
+          print(data["project"]["version"])
+          PY
+          )"
+
+          echo "Tag version: ${TAG_VERSION}"
+          echo "pyproject.toml version: ${PYPROJECT_VERSION}"
+
+          if [ "${TAG_VERSION}" != "${PYPROJECT_VERSION}" ]; then
+            echo "Tag version does not match pyproject.toml version"
+            exit 1
+          fi
+
       - name: Install CUDA Toolkit ${{ matrix.cuda-version }}
         uses: Jimver/cuda-toolkit@v0.2.35
         id: cuda-toolkit
@@ -69,12 +108,63 @@ jobs:
           PIP_INDEX_URL: "https://pypi.org/simple"
           PIP_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/${{ matrix.torch-cuda-index }}"
         run: |
-          nvcc -V
+          set -euo pipefail
 
+          nvcc -V
           python -m build --wheel
 
-      - name: Upload artifact
+      - name: Upload wheel artifact
         uses: actions/upload-artifact@v7
         with:
           name: bigvgan-wheels-py${{ matrix.python-version }}-cu${{ matrix.cuda-version }}-sm75
           path: dist/*.whl
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-22.04
+    needs:
+      - build_wheels
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: bigvgan-wheels-*
+          path: release-dist
+          merge-multiple: true
+
+      - name: List release files
+        run: |
+          set -euo pipefail
+
+          find release-dist -type f -maxdepth 2 -print
+
+      - name: Create release and upload wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          wheels=(release-dist/*.whl)
+
+          if [ "${#wheels[@]}" -eq 0 ]; then
+            echo "No wheels found"
+            exit 1
+          fi
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists"
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
+
+          gh release upload "${GITHUB_REF_NAME}" "${wheels[@]}" --clobber
