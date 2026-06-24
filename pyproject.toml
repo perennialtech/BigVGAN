@@ -10,7 +10,7 @@ dependencies = [
     "numpy>=2.4",
     "scipy>=1.17",
     "soundfile>=0.14",
-    "torch==2.11",
+    "torch>=2.11",
 ]
 
 [project.optional-dependencies]
@@ -20,7 +20,7 @@ train = [
     "nnaudio>=0.3",
     "pesq>=0.0",
     "tensorboard>=2.20",
-    "torchaudio==2.11",
+    "torchaudio>=2.11",
     "tqdm>=4.68",
 ]
 
@@ -36,7 +36,7 @@ dev = [
 requires = [
     "setuptools>=81.0",
     "wheel>=0.47",
-    "torch==2.11",
+    "torch>=2.11",
     "numpy>=2.4",
     "ninja>=1.13",
 ]
